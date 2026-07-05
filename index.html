@@ -54,14 +54,48 @@
             align-items: center;
             justify-content: center;
             z-index: 10;
+            padding: 20px;
         }
         h1 {
             color: #ff0055;
             font-size: 28px;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
             text-shadow: 0 0 10px #ff0055;
             text-align: center;
         }
+        
+        /* Slider Styling */
+        .slider-container {
+            width: 80%;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .slider-label {
+            font-size: 16px;
+            color: #00ffcc;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+        .speed-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: #444;
+            outline: none;
+            border: 1px solid #ff0055;
+        }
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #ff0055;
+            cursor: pointer;
+            box-shadow: 0 0 8px #ff0055;
+        }
+
         .btn {
             padding: 12px 30px;
             font-size: 18px;
@@ -104,27 +138,44 @@
 <body>
 
     <div id="game-container">
-        <!-- UI Info -->
         <div id="score-board" class="ui-element">Score: <span id="score">0</span></div>
         <div id="high-score-board" class="ui-element">High: <span id="high-score">0</span></div>
 
-        <!-- Menu/Game Over Screen -->
         <div id="menu-screen">
             <h1 id="menu-title">RETRO RACER</h1>
+            
+            <!-- Music style Range Slider -->
+            <div class="slider-container">
+                <div class="slider-label">Set Speed: <span id="speed-val">5</span></div>
+                <input type="range" min="3" max="12" value="5" class="speed-slider" id="speedRange">
+            </div>
+
             <button class="btn" id="start-btn" onclick="startGame()">START GAME</button>
         </div>
 
-        <!-- Game Board -->
         <canvas id="gameCanvas" width="360" height="540"></canvas>
     </div>
 
-    <!-- Mobile Screen Buttons -->
     <div id="controls">
         <div class="control-btn" id="left-btn">◀</div>
         <div class="control-btn" id="right-btn">▶</div>
     </div>
 
 <script>
+    // Offline Service Worker
+    if ('serviceWorker' in navigator) {
+        const cacheName = 'retro-racer-v2';
+        const assets = [window.location.pathname, 'index.html'];
+        const swCode = `
+            self.addEventListener('install', e => { e.waitUntil(caches.open('${cacheName}').then(cache => cache.addAll(${JSON.stringify(assets)}))); });
+            self.addEventListener('fetch', e => { e.respondWith(caches.match(e.request).then(res => res || fetch(e.request))); });
+        `;
+        const blob = new Blob([swCode], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(blob);
+        navigator.serviceWorker.register(swUrl).catch(err => console.log('SW fallback'));
+    }
+
+    // Game Logic
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     const scoreEl = document.getElementById("score");
@@ -132,29 +183,34 @@
     const menuScreen = document.getElementById("menu-screen");
     const menuTitle = document.getElementById("menu-title");
     const startBtn = document.getElementById("start-btn");
+    
+    // Slider Elements
+    const speedRange = document.getElementById("speedRange");
+    const speedVal = document.getElementById("speed-val");
 
-    // Load High Score
     let highScore = localStorage.getItem("racer_high") || 0;
     highScoreEl.innerText = highScore;
 
     let gameInterval;
     let isGameRunning = false;
     let score = 0;
-    let speed = 4;
+    let speed = 5;
     let roadOffset = 0;
 
-    // Car settings
     const carWidth = 45;
     const carHeight = 75;
     let player = { x: 155, y: 440, speed: 6 };
     let enemies = [];
-    let lanes = [45, 125, 205, 285]; // Car spawn paths
+    let lanes = [45, 125, 205, 285];
 
-    // Controls tracking
     let moveLeft = false;
     let moveRight = false;
 
-    // Keyboard Event listeners
+    // Slider value update listener
+    speedRange.addEventListener("input", (e) => {
+        speedVal.innerText = e.target.value;
+    });
+
     document.addEventListener("keydown", (e) => {
         if(e.key === "ArrowLeft") moveLeft = true;
         if(e.key === "ArrowRight") moveRight = true;
@@ -164,7 +220,6 @@
         if(e.key === "ArrowRight") moveRight = false;
     });
 
-    // Touch/Mobile Button Event Listeners
     const leftBtn = document.getElementById("left-btn");
     const rightBtn = document.getElementById("right-btn");
 
@@ -173,7 +228,6 @@
     rightBtn.addEventListener("touchstart", (e) => { e.preventDefault(); moveRight = true; });
     rightBtn.addEventListener("touchend", () => moveRight = false);
 
-    // Also supports mouse clicks on buttons for testing
     leftBtn.addEventListener("mousedown", () => moveLeft = true);
     leftBtn.addEventListener("mouseup", () => moveLeft = false);
     rightBtn.addEventListener("mousedown", () => moveRight = true);
@@ -182,21 +236,25 @@
     function startGame() {
         menuScreen.style.display = "none";
         score = 0;
-        speed = 4;
+        
+        // Pick speed from slider value
+        speed = parseInt(speedRange.value);
+        
+        // Dynamic player control speed based on game speed
+        player.speed = speed + 2; 
+        
         player.x = 155;
         enemies = [];
         isGameRunning = true;
         scoreEl.innerText = score;
         
         clearInterval(gameInterval);
-        gameInterval = setInterval(updateGame, 1000 / 60); // 60 FPS Loop
+        gameInterval = setInterval(updateGame, 1000 / 60);
     }
 
     function spawnEnemy() {
         if (Math.random() < 0.02 && enemies.length < 3) {
             let lane = lanes[Math.floor(Math.random() * lanes.length)];
-            
-            // Check if lane is already blocked closely
             let isLaneBlocked = enemies.some(enemy => enemy.lane === lane && enemy.y < 150);
             
             if(!isLaneBlocked) {
@@ -208,16 +266,13 @@
     }
 
     function drawRoad() {
-        // Draw Highway lines
         ctx.fillStyle = "#333";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         
         ctx.fillStyle = "#fff";
-        // Left & Right boundary lines
         ctx.fillRect(20, 0, 5, canvas.height);
         ctx.fillRect(335, 0, 5, canvas.height);
 
-        // Moving lane dividers
         ctx.fillStyle = "#aaaaaa";
         roadOffset += speed;
         if (roadOffset > 40) roadOffset = 0;
@@ -231,17 +286,12 @@
 
     function drawCar(x, y, color, isPlayer = false) {
         ctx.fillStyle = color;
-        // Main Body
         ctx.fillRect(x, y, carWidth, carHeight);
-        
-        // Wheels
         ctx.fillStyle = "#000";
         ctx.fillRect(x - 4, y + 10, 4, 15);
         ctx.fillRect(x + carWidth, y + 10, 4, 15);
         ctx.fillRect(x - 4, y + 50, 4, 15);
         ctx.fillRect(x + carWidth, y + 50, 4, 15);
-
-        // Windshield / Glass
         ctx.fillStyle = isPlayer ? "#00ffff" : "#ffffff";
         ctx.fillRect(x + 5, y + 20, carWidth - 10, 15);
     }
@@ -271,38 +321,32 @@
     function updateGame() {
         if (!isGameRunning) return;
 
-        // 1. Move Player
         if (moveLeft && player.x > 25) player.x -= player.speed;
         if (moveRight && player.x < 335 - carWidth) player.x += player.speed;
 
-        // 2. Clear & Draw Road
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawRoad();
-
-        // 3. Draw Player
         drawCar(player.x, player.y, "#ff0055", true);
-
-        // 4. Enemy Logistics
         spawnEnemy();
         
         for (let i = enemies.length - 1; i >= 0; i--) {
-            enemies[i].y += speed; // Move down
+            enemies[i].y += speed;
             drawCar(enemies[i].x, enemies[i].y, enemies[i].color, false);
 
-            // Check collision with player
             if (checkCollision(player, enemies[i])) {
                 gameOver();
                 return;
             }
 
-            // Remove if off-screen and add score
             if (enemies[i].y > canvas.height) {
                 enemies.splice(i, 1);
                 score += 100;
                 scoreEl.innerText = score;
-                
-                // Increase difficulty speed slowly
-                if (score % 500 === 0) speed += 0.5;
+                // Game progression speed factor
+                if (score % 600 === 0) {
+                    speed += 0.5;
+                    player.speed += 0.5;
+                }
             }
         }
     }
